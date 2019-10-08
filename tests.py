@@ -39,22 +39,57 @@ class EpubTests(unittest.TestCase):
     def setUp(self):
         pass
 
-    @patch('ebook_image_extractor.zipfile.ZipFile')
+    @mock.patch('ebook_image_extractor.zipfile.ZipFile')
     def test_extract_file(self, mock_zip_file):
         '''https://gist.github.com/Bergvca/069d50d58b56fba0f9ee695d92ccebde'''
         test_dir = tempfile.mkdtemp()
         test_file1 = tempfile.mkstemp(suffix='.epub', dir=test_dir)
-
-        mock_open_file = mock.mock_open
         ebook_image_extractor.temp_dir = test_dir
         epub = Epub(test_file1)
+
         epub.extract_file('test.opf', directory=test_dir)
-        print(ebook_image_extractor.zipfile.ZipFile.method_calls)
-        print(ebook_image_extractor.zipfile.ZipFile.extract.method_calls)
+
+        mock_zip_file.assert_called()
+
+    @mock.patch('ebook_image_extractor.zipfile.ZipFile')
+    def test_get_all_contents(self, mock_zip_file):
+        test_dir = tempfile.mkdtemp()
+        test_file1 = tempfile.mkstemp(suffix='.epub', dir=test_dir)
+        ebook_image_extractor.temp_dir = test_dir
+        epub = Epub(test_file1)
+
+        mock_open_file = mock.mock_open()
+        epub.get_all_contents()
+        mock_zip_file.assert_called()
+
+    @mock.patch('ebook_image_extractor.etree')
+    def test_get_opf(self, mock_etree):
+
+        test_dir = tempfile.mkdtemp()
+        test_file1 = tempfile.mkstemp(suffix='.epub', dir=test_dir)
+        ebook_image_extractor.temp_dir = test_dir
+        epub = Epub(test_file1)
+        
+        epub.extract_file = mock.MagicMock(return_value=(0, None))
+        mock_etree.parse = mock.MagicMock(return_value='test_container')
+        epub.opf_from_container = mock.MagicMock(return_value='OEPBS/content.opf')
+        epub.get_opf()
+        self.assertEqual(epub.opf, 'OEPBS/content.opf')
 
 
+        test_dir = tempfile.mkdtemp()
+        test_file1 = tempfile.mkstemp(suffix='.epub', dir=test_dir)
+        ebook_image_extractor.temp_dir = test_dir
+        epub = Epub(test_file1)
+        
+        epub.extract_file = mock.MagicMock(return_value=(0, None))
+        epub.get_info = mock.MagicMock(return_value=('info'))
+        mock_etree.parse = mock.MagicMock(return_value='test_container')
+        epub.opf_from_container = mock.MagicMock(return_value=None)
+        epub.get_opf()
 
-
+        self.assertEqual(epub.opf, 'OEPBS/content.opf')
+        
 
 
 if __name__ == '__main__':
