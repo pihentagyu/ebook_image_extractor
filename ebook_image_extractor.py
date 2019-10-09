@@ -3,6 +3,7 @@
 from lxml import etree
 import os
 import sys
+import time
 import tempfile
 import zipfile
 
@@ -15,7 +16,6 @@ class Book:
         self.directory_name = None
 
 class Epub(Book):
-
     def __init__(self, book_file):
         super().__init__(book_file)
         self.opf = None
@@ -35,6 +35,7 @@ class Epub(Book):
             return 0, None
 
     def get_all_contents(self):
+        '''returns a list of all files in the epub archive'''
         try:
             with zipfile.ZipFile(self.book_file, 'r') as epub_archive:
                 return epub_archive.read()
@@ -42,13 +43,15 @@ class Epub(Book):
             return
 
     def get_info(self, afile):
+        '''returns info about a given file in the archive'''
         try:
             with zipfile.ZipFile(self.book_file, 'r') as epub_archive:
                 return epub_archive.getinfo(afile)
         except KeyError:
             return
 
-    def opf_from_container(self):
+    def opf_from_container(self, container_tree):
+        '''return the opf file path from the container tree xml metadata'''
         for el in container_tree.iter('{*}rootfile'): #get the opf file path
             return el.attrib.get('full-path')
 
@@ -83,14 +86,17 @@ class Epub(Book):
 
     def get_image_location(self):
         '''Find the image location by parsing the opf file'''
-        self.image = self.get_image_from_meta(opf)
-        if not image:
-            self.image = self.get_image_from_cover_page(opf, book)
+        self.image = self.get_image_from_meta()
+        if not self.image:
+            self.image = self.get_image_from_cover_page()
+        if image:
+            self.image = re.sub('^\/', '', self.image) #remove leading '/'
+            return 0
+        else:
+            return 1
 
     def extract_image(self):
-        print('image, 232: {}'.format(image))
-        image = re.sub('^\/', '', image) #remove leading '/'
-        extract(book, temp_dir, image)
+        self.extract(book, temp_dir, image)
         _, imageext = os.path.splitext(image)
         if imageext.lower() == '.jpeg' or '.jpg':
             try:
@@ -143,7 +149,7 @@ def main():
     created = 0
     failed = 0
     for file_name in get_epub_list():
-        fname, fext = os.path.splitext(book)
+        fname, fext = os.path.splitext(file_name)
         if os.path.isfile(file_name + '.jpg'): # skip if jpeg already exists
             print('Jpeg file exists for %s' % file_name)
             skipped += 1
@@ -156,19 +162,18 @@ def main():
                 failed += 1
                 continue
             if ebook.opf:
-                status = self.extract_file(book, opf)
-        if status != 0: ## Bad zip file already checked above!!
-            print(status)
-            failed += 1
-            continue
+                status, msg = ebook.extract_file(ebook.opf)
+                if status != 0: ## Bad zip file already checked above!!
+                    print(status)
+                    failed += 1
+                    continue
+                ebook.get_image_location()
+                ebook.extract_image()
         else:
             ebook = Pdf(book_file)
-            status = book.extract_file()
+            status, msg = book.extract_file()
             if status != 0:
                 print(f'Unable to retrieve image from {file_name}')
-            
-
-
             
 
 if __name__ == '__main__':

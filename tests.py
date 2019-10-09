@@ -1,3 +1,4 @@
+from lxml import etree
 import tempfile
 import unittest
 from unittest import mock
@@ -61,6 +62,28 @@ class EpubTests(unittest.TestCase):
         mock_open_file = mock.mock_open()
         epub.get_all_contents()
         mock_zip_file.assert_called()
+    
+
+    @mock.patch('ebook_image_extractor.zipfile.ZipFile')
+    def test_get_info(self, mock_zip_file):
+        test_dir = tempfile.mkdtemp()
+        test_file1 = tempfile.mkstemp(suffix='.epub', dir=test_dir)
+        ebook_image_extractor.temp_dir = test_dir
+        epub = Epub(test_file1)
+
+        mock_open_file = mock.mock_open()
+        epub.get_info('OEPBS/content.opf')
+        mock_zip_file.assert_called()
+
+    def test_opf_from_container(self):
+        test_dir = tempfile.mkdtemp()
+        test_file1 = tempfile.mkstemp(suffix='.epub', dir=test_dir)
+        ebook_image_extractor.temp_dir = test_dir
+        epub = Epub(test_file1)
+        container_str = '''<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'''
+        container_tree = etree.fromstring(container_str)
+        opf_file = epub.opf_from_container(container_tree)
+        self.assertEqual(opf_file, 'OEBPS/content.opf')
 
     @mock.patch('ebook_image_extractor.etree')
     def test_get_opf(self, mock_etree):
@@ -91,6 +114,39 @@ class EpubTests(unittest.TestCase):
         self.assertEqual(epub.opf, 'OEPBS/content.opf')
         
 
+    def test_get_image_location(self):
+        test_dir = tempfile.mkdtemp()
+        test_file1 = tempfile.mkstemp(suffix='.epub', dir=test_dir)
+        ebook_image_extractor.temp_dir = test_dir
+        epub = Epub(test_file1)
+        epub.get_image_from_meta = mock.MagicMock(return_value='images/cover.jpg')
+        epub.get_image_from_cover_page = mock.MagicMock()
+
+        epub.get_image_location()
+
+        epub.get_image_from_meta.assert_called()
+        epub.get_image_from_cover_page.assert_not_called()
+
+        test_dir = tempfile.mkdtemp()
+        test_file1 = tempfile.mkstemp(suffix='.epub', dir=test_dir)
+        ebook_image_extractor.temp_dir = test_dir
+        epub = Epub(test_file1)
+        epub.get_image_from_meta = mock.MagicMock(return_value=None)
+        epub.get_image_from_cover_page = mock.MagicMock()
+
+        epub.get_image_location()
+
+        epub.get_image_from_cover_page.assert_called()
+        epub.get_image_from_meta.assert_called()
+    def test_extract_image(self):
+        pass
+
+class PdfTests(unittest.TestCase):
+    def setUp(self):
+        pass
+
+    def test_extract_file(self):
+        pass
 
 if __name__ == '__main__':
     unittest.main()
