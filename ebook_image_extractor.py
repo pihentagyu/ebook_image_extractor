@@ -8,7 +8,6 @@ import tempfile
 import zipfile
 
 temp_dir = tempfile.mkdtemp()
-container_file = 'META-INF/container.xml' #META-INF/container.xml tells us where the opf file is
 
 class Book:
     def __init__(self, book_file):
@@ -50,39 +49,135 @@ class Epub(Book):
         except KeyError:
             return
 
-    def opf_from_container(self, container_tree):
-        '''return the opf file path from the container tree xml metadata'''
-        for el in container_tree.iter('{*}rootfile'): #get the opf file path
-            return el.attrib.get('full-path')
-
-    def get_opf(self):
-        '''Get the OPF file. First, try the most accurate, checking the container.xml file for its location.
-        If not successful, guess the location as OEBPS/conetent.opf.
-        If that file doesn't exist, get the first ocurrence on a list of all files in the archive'''
-        status, msg = self.extract_file(container_file)
-        if status != 0:
-            print(msg)
-            return 1
+    def parse_container_file(self, container_file):
         try:
             container_tree = etree.parse(os.path.join(temp_dir, container_file))
         except etree.ParseError:
             print('{}: Could not parse Container file'.format(base))
             container_tree = None
-        if container_tree:
-            self.opf = self.opf_from_container(container_tree)
+        return container_tree
 
-        if not self.opf:
-            # Guess the most common location
-            opf_info = self.get_info('OEPBS/content.opf')
-            if opf_info:
-                self.opf = 'OEPBS/content.opf'
+    def get_opf_from_container(self, container_tree):
+        '''Get the OPF file. First, try the most accurate, checking the container.xml file for its location.
+        If not successful, guess the location as OEBPS/conetent.opf.
+        If that file doesn't exist, get the first ocurrence on a list of all files in the archive'''
+        for el in container_tree.iter('{*}rootfile'): #get the opf file path
+            return el.attrib.get('full-path')
+
+    def get_opf_from_default(self):
+        '''Guess the most common location'''
+        opf_info = self.get_info('OEPBS/content.opf')
+        if opf_info:
+            return 'OEPBS/content.opf'
+
+    def get_opf_from_contents(self):
+        # Finally, if nothing else works, do it the slow way
+        contents = get_all_contents()
+        for fname in contents:
+            if fname.endswith('.opf'):
+                return fname
+
+    def get_cover_page(self):
+        '''parse opf file contents'''
+        #content = ''
+        #image = ''
+        #print 'opf: %s' % opf
+        try:
+            opf_tree = etree.parse(os.path.join(temp_dir, self.opf))
+        except etree.ParseError:
+            return None
+
+        '''First find the reference with type=cover'''
+        '''<reference type="cover" title="Front Cover" href="page001.xhtml" />'''
+        for e in opf_tree.iter('{*}reference'): ## 
+            cover_type = e.attrib.get('type')
+            if cover_type:
+                if cover_type.lower() == 'cover':
+                    cover_page = e.attrib['href']
+                if cover_page:
+                    return cover_page
+
+        '''Then try the first itemref id, get the corresponding item's href'''
+        el = opf_tree.find('.//{*}itemref')
+        cover_id = el.attrib.get('idref')
+        if cover_id:
+            items = opf_tree.findall('.//{*}item')
+            for item in items:
+                if item.attrib.get('id') == cover_id:
+                    return item.attrib.get('href')
+
+    #else:
+    def check_if_cover_is_image(self, cover_page):
+        '''sometimes the <reference href=> refers to an image, which what we want'''
+        #print 'cover page: %s' % cover_page
+        _, ext = os.path.splitext(cover_page)
+        if ext.lower() in ('.jpg', '.jpeg', '.png'): 
+            return cover_page
+
+    def get_cover_tree(self, cover_page):
+        #html = True
+        # else: # other times it refers to the cover page (html, xml, etc), so that needs to be parsed for the image
+        #html = False
+        cover_page_path = os.path.join(opf_path, cover_page)
+        #print 'Cover page path: %s' % cover_page_path
+        returncode = self.extract_file(cover_page_path)
+        if returncode != 0:
+            return
+
+        cover_tree = None
+        if ext.lower() in ('.html', '.xhtml', '.htm'):
+            try:
+                parser = etree.HTMLParser()
+                with open(os.path.join(temp_dir, cover_page_path)) as cover_tree_content:
+                    cover_tree_text = cover_tree_content.read().encode('utf-8')
+                    cover_tree = etree.parse(BytesIO(cover_tree_text), parser)
+            except ValueError as v:
+                print(v)
+        elif ext.lower() == '.xml':
+            cover_tree = etree.parse(os.path.join(temp_dir, cover_page_path))
+
+        return cover_tree
+
+    def get_image_from_src(self, cover_tree):
+        for e in cover_tree.iter('*'):
+            #print e, e.attrib
+            xlink = e.nsmap.get('xlink')
+            if xlink:
+                src = '{' + dtd + '}src'
             else:
-                # Finally, if nothing else works, do it the slow way
-                contents = get_all_contents()
-                for fname in contents:
-                    if fname.endswith('.opf'):
-                        self.opf = fname
+                src = 'src'
+    
+            src_file = e.attrib.get(src)
+            if src_file and os.path.splitext(src_file)[1] in ('.jpg', '.jpeg', '.png'):
+                return src_file
+
+            return None
+    def get_image_from_href(self, cover_tree):
+        for e in cover_tree.iter('*'):
+                dtd = e.nsmap.get('xlink')
+                if xlink:
+                    href = '{' + dtd + '}href'
+                else:
+                    href = 'href'
+                
+                href_file = e.attrib.get(href)
+                if href_file and os.path.splitext(href_file)[1] in ('.jpg', '.jpeg', '.png'):
+                        return href_file
+    
+                '''for e in cover_tree.iter('{*}img'):
+                    #if e.attrib['alt'].lower() == 'cover':
+                    image = e.attrib['src']
+                    if image:
                         break
+                if not image:
+                    for e in cover_tree.iter('{*}svg'):
+                        #print e, e.attrib
+                        image = e.attrib['src']'''
+
+    def correct_image_path(self, image):
+        image = os.path.join(os.path.dirname(cover_page_path), image) # make corrections to image path
+        image = re.sub('\/.+\/\.\.', '', image)
+        return image
 
     def get_image_location(self):
         '''Find the image location by parsing the opf file'''
@@ -144,6 +239,7 @@ def get_epub_list():
     sys.exit(1)
 
 def main():
+    container_file = 'META-INF/container.xml' #META-INF/container.xml tells us where the opf file is
     start_time = time.time()
     skipped = 0
     created = 0
@@ -157,18 +253,42 @@ def main():
         print(f'Getting image for {file_name}...')
         if file_name.lower().endswith('.epub'):
             ebook = Epub(file_name)
-            status = ebook.get_opf()
-            if status == 1:
-                failed += 1
+            #status = ebook.get_opf()
+            #if status == 1:
+            #    failed += 1
+            #    continue
+            status, msg = ebook.extract_file(container_file)
+            if status != 0:
+                print(msg)
                 continue
-            if ebook.opf:
-                status, msg = ebook.extract_file(ebook.opf)
-                if status != 0: ## Bad zip file already checked above!!
-                    print(status)
-                    failed += 1
-                    continue
-                ebook.get_image_location()
-                ebook.extract_image()
+            container_tree = ebook.parse_container_file(container_file)
+            opf = ebook.get_opf_from_container(container_file)
+            if not opf:
+                opf = ebook.get_opf_from_default()
+            if not opf:
+                opf = ebook.get_opf_from_contents()
+            if opf:
+                ebook.opf = re.sub('\%20', ' ', opf) # clean up spaces
+            else:
+                continue
+
+            cover_page = ebook.get_cover_page()
+            if not cover_page:
+                continue
+            cover_page = re.sub('\%20', ' ', cover_page) # clean up spaces
+            opf_path = os.path.dirname(ebook.opf)
+            cover_page = os.path.join(opf_path, cover_page)
+            cover_image = check_if_cover_is_image(cover_page)
+            if not cover_image:
+                cover_tree = ebook.get_cover_tree()
+                cover_image = ebook.get_image_from_src(cover_tree)
+                if not cover_imgae:
+                    ebook.get_image_from_href(cover_tree)
+            if cover_image:
+                ebook.cover_image = ebook.correct_image_path(cover_image)
+            else:
+                continue
+
         else:
             ebook = Pdf(book_file)
             status, msg = book.extract_file()
