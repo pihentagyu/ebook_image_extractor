@@ -74,7 +74,7 @@ class Epub(Book):
             return 'OEPBS/content.opf'
 
     def get_opf_from_contents(self):
-        # Finally, if nothing else works, do it the slow way
+        '''If nothing else works, unpack and find the first opf file'''
         contents = self.get_all_contents()
         for fname in contents:
             if fname.endswith('.opf'):
@@ -110,6 +110,7 @@ class Epub(Book):
             return cover_page
 
     def get_cover_tree(self, cover_page, cover_page_path=temp_dir):
+        '''parse the cover page, and return the element tree'''
         cover_tree = None
         _, ext = os.path.splitext(cover_page)
         if ext.lower() in ('.html', '.xhtml', '.htm'):
@@ -128,6 +129,7 @@ class Epub(Book):
         return cover_tree
 
     def get_image_from_src(self, cover_tree):
+        '''find the image in the cover page in the case of <img src=...>'''
         for e in cover_tree.iter():
             dtd = e.nsmap.get('xlink')
             if dtd:
@@ -150,6 +152,7 @@ class Epub(Book):
                 image = e.attrib['src']'''
 
     def get_image_from_href(self, cover_tree):
+        '''find the image in the cover page in the case of <img href=...>'''
         for e in cover_tree.iter('*'):
             dtd = e.nsmap.get('xlink')
             if dtd:
@@ -163,11 +166,9 @@ class Epub(Book):
     
 
     def correct_image_path(self, image, image_path):
-        print(self.opf_path)
-        print(image)
-        print(image)
+        '''Add the path for image extraction'''
         image = os.path.join(image_path, image) # make corrections to image path
-        image = re.sub('\/.+\/\.\.', '', image)
+        image = re.sub('\/.+\/\.\.', '', image) # change OEBPS/../image/ to OEBPS/image, for example
         return image
 
     def get_image_location(self):
@@ -182,6 +183,7 @@ class Epub(Book):
             return 1
 
     def extract_image(self):
+        '''Extract image from epub'''
         status, msg = self.extract_file(self.cover_image)
         #if status != 0:
         #    status, msg = self.extract_file(os.path.join('OEBPS', self.cover_image))
@@ -241,10 +243,9 @@ def main():
     failed = 0
     image_path = None
     for file_name in get_epub_list():
-        print(file_name)
         fname, fext = os.path.splitext(file_name)
         if os.path.isfile(fname + '.jpg'): # skip if jpeg already exists
-            print('Jpeg file exists for %s' % file_name)
+            print('Jpeg file already exists for %s' % file_name)
             skipped += 1
             continue
         print(f'Getting image for {file_name}...')

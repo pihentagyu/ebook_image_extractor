@@ -60,7 +60,7 @@ class EpubTests(unittest.TestCase):
     @mock.patch('ebook_image_extractor.zipfile.ZipFile')
     def test_get_info(self, mock_zip_file):
         #mock_open_file = mock.mock_open()
-        self.epub.get_info('OEPBS/content.opf')
+        self.epub.get_info('OEBPS/content.opf')
         mock_zip_file.assert_called()
 
     def test_parse_file(self):
@@ -250,7 +250,10 @@ class EpubTests(unittest.TestCase):
         pass
 
     def test_correct_image_path(self):
-        pass
+        image = '../images/cover.jpg'
+        image_path = 'OEBPS/text'
+        new_image = self.epub.correct_image_path(image, image_path)
+        self.assertEqual(new_image, 'OEBPS/images/cover.jpg')
 
     def test_get_image_location(self):
         self.epub.get_image_from_meta = mock.MagicMock(return_value='images/cover.jpg')
