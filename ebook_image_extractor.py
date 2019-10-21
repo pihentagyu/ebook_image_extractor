@@ -117,15 +117,10 @@ class Epub(Book):
             try:
                 with open(os.path.join(cover_page_path, cover_page)) as cover_tree_content:
                     cover_tree_text = cover_tree_content.read().encode('utf-8')
-                    print(cover_tree_text)
                     cover_tree = etree.parse(BytesIO(cover_tree_text), parser)
             except ValueError as v:
                 print(v)
                 return
-            print(cover_tree)
-            print('1')
-            for e in cover_tree.iter():
-                print(e)
             return cover_tree
 
         else:
@@ -133,10 +128,7 @@ class Epub(Book):
         return cover_tree
 
     def get_image_from_src(self, cover_tree):
-        print(cover_tree)
-        print('3')
         for e in cover_tree.iter():
-            print(e)
             dtd = e.nsmap.get('xlink')
             if dtd:
                 src = '{' + dtd + '}src'
@@ -170,13 +162,12 @@ class Epub(Book):
                 return href_file
     
 
-    def correct_image_path(self, image):
+    def correct_image_path(self, image, image_path):
         print(self.opf_path)
         print(image)
-        #image = re.sub('\/.+\/\.\.', '', image)
-        image = re.sub('^\.\.\/', '', image)
         print(image)
-        image = os.path.join(self.opf_path, image) # make corrections to image path
+        image = os.path.join(image_path, image) # make corrections to image path
+        image = re.sub('\/.+\/\.\.', '', image)
         return image
 
     def get_image_location(self):
@@ -192,8 +183,8 @@ class Epub(Book):
 
     def extract_image(self):
         status, msg = self.extract_file(self.cover_image)
-        if status != 0:
-            status, msg = self.extract_file(os.path.join('OEBPS', self.cover_image))
+        #if status != 0:
+        #    status, msg = self.extract_file(os.path.join('OEBPS', self.cover_image))
         print(status)
         print(msg)
         _, imageext = os.path.splitext(self.cover_image)
@@ -248,9 +239,11 @@ def main():
     skipped = 0
     created = 0
     failed = 0
+    image_path = None
     for file_name in get_epub_list():
+        print(file_name)
         fname, fext = os.path.splitext(file_name)
-        if os.path.isfile(file_name + '.jpg'): # skip if jpeg already exists
+        if os.path.isfile(fname + '.jpg'): # skip if jpeg already exists
             print('Jpeg file exists for %s' % file_name)
             skipped += 1
             continue
@@ -268,7 +261,6 @@ def main():
                 continue
             container_tree = ebook.parse_xml_file(container_file)
             opf = ebook.get_opf_from_container(container_tree)
-            print(opf)
             if not opf:
                 opf = ebook.get_opf_from_default()
             if not opf:
@@ -278,42 +270,35 @@ def main():
                 ebook.opf_path = os.path.dirname(ebook.opf)
                 ebook.extract_file(ebook.opf)
             else:
+                print('Cannot find opf file')
                 failed += 1
                 continue
             opf_tree = ebook.parse_xml_file(ebook.opf)
-            print(opf_tree)
             cover_page = ebook.get_cover_page_from_opf(opf_tree)
-            print(cover_page)
             if not cover_page:
-                print(f'266 cover not found for {file_name}')
+                print(f'cover page not found for {file_name}')
                 failed += 1
                 continue
             cover_page = re.sub('\%20', ' ', cover_page) # clean up spaces
             print(cover_page)
             cover_page = os.path.join(ebook.opf_path, cover_page)
             cover_image = ebook.check_if_cover_is_image(cover_page)
-            print(cover_image)
-            if not cover_image:
+            if cover_image:
+                image_path = ebook.opf_path
+            else:
                 status, msg = ebook.extract_file(cover_page)
                 print(status, msg)
                 if status != 0:
-                    print(f'274 cover not found for {file_name}')
                     failed += 1
                     continue
                 cover_tree = ebook.get_cover_tree(cover_page)
-                print('2')
-                for e in cover_tree.iter():
-                    print(e)
-                print('cover tree')
-                print(cover_tree)
                 cover_image = ebook.get_image_from_src(cover_tree)
-                print('cover image')
-                print(cover_image)
                 if not cover_image:
                     cover_image = ebook.get_image_from_href(cover_tree)
+                image_path = os.path.dirname(cover_page)
             if cover_image:
-                ebook.cover_image = ebook.correct_image_path(cover_image)
-                print(ebook.cover_image)
+                ebook.cover_image = ebook.correct_image_path(cover_image, image_path)
+
 
                 status = ebook.extract_image()
                 if status == 0:
