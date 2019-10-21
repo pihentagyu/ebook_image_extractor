@@ -1,7 +1,11 @@
 #!/usr/bin/env python
 
+from io import BytesIO
 from lxml import etree
 import os
+import re
+import shutil
+import subprocess
 import sys
 import time
 import tempfile
@@ -49,13 +53,12 @@ class Epub(Book):
         except KeyError:
             return
 
-    def parse_container_file(self, container_file):
+    def parse_xml_file(self, file_name, dir_name=temp_dir):
+        '''parse opf file contents'''
         try:
-            container_tree = etree.parse(os.path.join(temp_dir, container_file))
+            return etree.parse(os.path.join(dir_name, file_name))
         except etree.ParseError:
-            print('{}: Could not parse Container file'.format(base))
-            container_tree = None
-        return container_tree
+            return None
 
     def get_opf_from_container(self, container_tree):
         '''Get the OPF file. First, try the most accurate, checking the container.xml file for its location.
@@ -72,23 +75,15 @@ class Epub(Book):
 
     def get_opf_from_contents(self):
         # Finally, if nothing else works, do it the slow way
-        contents = get_all_contents()
+        contents = self.get_all_contents()
         for fname in contents:
             if fname.endswith('.opf'):
                 return fname
 
-    def get_cover_page(self):
-        '''parse opf file contents'''
-        #content = ''
-        #image = ''
-        #print 'opf: %s' % opf
-        try:
-            opf_tree = etree.parse(os.path.join(temp_dir, self.opf))
-        except etree.ParseError:
-            return None
-
+    def get_cover_page_from_opf(self, opf_tree):
         '''First find the reference with type=cover'''
         '''<reference type="cover" title="Front Cover" href="page001.xhtml" />'''
+        cover_page = None
         for e in opf_tree.iter('{*}reference'): ## 
             cover_type = e.attrib.get('type')
             if cover_type:
@@ -114,35 +109,36 @@ class Epub(Book):
         if ext.lower() in ('.jpg', '.jpeg', '.png'): 
             return cover_page
 
-    def get_cover_tree(self, cover_page):
-        #html = True
-        # else: # other times it refers to the cover page (html, xml, etc), so that needs to be parsed for the image
-        #html = False
-        cover_page_path = os.path.join(opf_path, cover_page)
-        #print 'Cover page path: %s' % cover_page_path
-        returncode = self.extract_file(cover_page_path)
-        if returncode != 0:
-            return
-
+    def get_cover_tree(self, cover_page, cover_page_path=temp_dir):
         cover_tree = None
+        _, ext = os.path.splitext(cover_page)
         if ext.lower() in ('.html', '.xhtml', '.htm'):
+            parser = etree.HTMLParser()
             try:
-                parser = etree.HTMLParser()
-                with open(os.path.join(temp_dir, cover_page_path)) as cover_tree_content:
+                with open(os.path.join(cover_page_path, cover_page)) as cover_tree_content:
                     cover_tree_text = cover_tree_content.read().encode('utf-8')
+                    print(cover_tree_text)
                     cover_tree = etree.parse(BytesIO(cover_tree_text), parser)
             except ValueError as v:
                 print(v)
-        elif ext.lower() == '.xml':
-            cover_tree = etree.parse(os.path.join(temp_dir, cover_page_path))
+                return
+            print(cover_tree)
+            print('1')
+            for e in cover_tree.iter():
+                print(e)
+            return cover_tree
 
+        else:
+            return self.parse_xml_file(cover_page)
         return cover_tree
 
     def get_image_from_src(self, cover_tree):
-        for e in cover_tree.iter('*'):
-            #print e, e.attrib
-            xlink = e.nsmap.get('xlink')
-            if xlink:
+        print(cover_tree)
+        print('3')
+        for e in cover_tree.iter():
+            print(e)
+            dtd = e.nsmap.get('xlink')
+            if dtd:
                 src = '{' + dtd + '}src'
             else:
                 src = 'src'
@@ -150,33 +146,37 @@ class Epub(Book):
             src_file = e.attrib.get(src)
             if src_file and os.path.splitext(src_file)[1] in ('.jpg', '.jpeg', '.png'):
                 return src_file
+        return None
+        '''for e in cover_tree.iter('{*}img'):
+            #if e.attrib['alt'].lower() == 'cover':
+            image = e.attrib['src']
+            if image:
+                break
+        if not image:
+            for e in cover_tree.iter('{*}svg'):
+                #print e, e.attrib
+                image = e.attrib['src']'''
 
-            return None
     def get_image_from_href(self, cover_tree):
         for e in cover_tree.iter('*'):
-                dtd = e.nsmap.get('xlink')
-                if xlink:
-                    href = '{' + dtd + '}href'
-                else:
-                    href = 'href'
-                
-                href_file = e.attrib.get(href)
-                if href_file and os.path.splitext(href_file)[1] in ('.jpg', '.jpeg', '.png'):
-                        return href_file
+            dtd = e.nsmap.get('xlink')
+            if dtd:
+                href = '{' + dtd + '}href'
+            else:
+                href = 'href'
+            
+            href_file = e.attrib.get(href)
+            if href_file and os.path.splitext(href_file)[1] in ('.jpg', '.jpeg', '.png'):
+                return href_file
     
-                '''for e in cover_tree.iter('{*}img'):
-                    #if e.attrib['alt'].lower() == 'cover':
-                    image = e.attrib['src']
-                    if image:
-                        break
-                if not image:
-                    for e in cover_tree.iter('{*}svg'):
-                        #print e, e.attrib
-                        image = e.attrib['src']'''
 
     def correct_image_path(self, image):
-        image = os.path.join(os.path.dirname(cover_page_path), image) # make corrections to image path
-        image = re.sub('\/.+\/\.\.', '', image)
+        print(self.opf_path)
+        print(image)
+        #image = re.sub('\/.+\/\.\.', '', image)
+        image = re.sub('^\.\.\/', '', image)
+        print(image)
+        image = os.path.join(self.opf_path, image) # make corrections to image path
         return image
 
     def get_image_location(self):
@@ -191,24 +191,28 @@ class Epub(Book):
             return 1
 
     def extract_image(self):
-        self.extract(book, temp_dir, image)
-        _, imageext = os.path.splitext(image)
+        status, msg = self.extract_file(self.cover_image)
+        if status != 0:
+            status, msg = self.extract_file(os.path.join('OEBPS', self.cover_image))
+        print(status)
+        print(msg)
+        _, imageext = os.path.splitext(self.cover_image)
         if imageext.lower() == '.jpeg' or '.jpg':
             try:
-                shutil.copy(os.path.join(temp_dir, image), file_name + '.jpg')
+                shutil.copy(os.path.join(temp_dir, self.cover_image), os.path.splitext(self.book_file)[0] + '.jpg')
             except IOError as e:
-                print('{}: {}'.format(base, e))
+                print('{}: {}'.format(os.path.splitext(self.book_file)[0], e))
                 return 1
-            print('Successfully extracted image from %s' % book)
-            created += 1
+            print('Successfully extracted image from %s' % self.book_file)
+            return 0
         else:
-            returncode = subprocess.call(['convert', os.file.join(temp_dir, image), filename + '.jpg']) # if not jpeg, use imagemagick to convert
+            returncode = subprocess.call(['convert', os.file.join(temp_dir, self.cover_image), os.path.splitext(self.book_file)[0] + '.jpg']) # if not jpeg, use imagemagick to convert
             if returncode == 0:
-                print('Extraction completed for %s' % book)
-                created += 1
+                print('Extraction completed for %s' % self.book_file)
+                return 0
             else:
-                print('Error converting image %s for epub %s. Do you have ImageMagick installed?' % (image, book))
-                failed += 1
+                print('Error converting image %s for epub %s. Do you have ImageMagick installed?' % (self.cover_image, self.book_file))
+                return 1 
 
 class Pdf(Book):
     def __init__(self, book_file):
@@ -260,40 +264,79 @@ def main():
             status, msg = ebook.extract_file(container_file)
             if status != 0:
                 print(msg)
+                failed += 1
                 continue
-            container_tree = ebook.parse_container_file(container_file)
-            opf = ebook.get_opf_from_container(container_file)
+            container_tree = ebook.parse_xml_file(container_file)
+            opf = ebook.get_opf_from_container(container_tree)
+            print(opf)
             if not opf:
                 opf = ebook.get_opf_from_default()
             if not opf:
                 opf = ebook.get_opf_from_contents()
             if opf:
                 ebook.opf = re.sub('\%20', ' ', opf) # clean up spaces
+                ebook.opf_path = os.path.dirname(ebook.opf)
+                ebook.extract_file(ebook.opf)
             else:
+                failed += 1
                 continue
-
-            cover_page = ebook.get_cover_page()
+            opf_tree = ebook.parse_xml_file(ebook.opf)
+            print(opf_tree)
+            cover_page = ebook.get_cover_page_from_opf(opf_tree)
+            print(cover_page)
             if not cover_page:
+                print(f'266 cover not found for {file_name}')
+                failed += 1
                 continue
             cover_page = re.sub('\%20', ' ', cover_page) # clean up spaces
-            opf_path = os.path.dirname(ebook.opf)
-            cover_page = os.path.join(opf_path, cover_page)
-            cover_image = check_if_cover_is_image(cover_page)
+            print(cover_page)
+            cover_page = os.path.join(ebook.opf_path, cover_page)
+            cover_image = ebook.check_if_cover_is_image(cover_page)
+            print(cover_image)
             if not cover_image:
-                cover_tree = ebook.get_cover_tree()
+                status, msg = ebook.extract_file(cover_page)
+                print(status, msg)
+                if status != 0:
+                    print(f'274 cover not found for {file_name}')
+                    failed += 1
+                    continue
+                cover_tree = ebook.get_cover_tree(cover_page)
+                print('2')
+                for e in cover_tree.iter():
+                    print(e)
+                print('cover tree')
+                print(cover_tree)
                 cover_image = ebook.get_image_from_src(cover_tree)
-                if not cover_imgae:
-                    ebook.get_image_from_href(cover_tree)
+                print('cover image')
+                print(cover_image)
+                if not cover_image:
+                    cover_image = ebook.get_image_from_href(cover_tree)
             if cover_image:
                 ebook.cover_image = ebook.correct_image_path(cover_image)
-            else:
-                continue
+                print(ebook.cover_image)
+
+                status = ebook.extract_image()
+                if status == 0:
+                    created += 1
+                else:
+                    failed += 1
 
         else:
             ebook = Pdf(book_file)
-            status, msg = book.extract_file()
+            status, msg = ebook.extract_file()
             if status != 0:
+                failed += 1
                 print(f'Unable to retrieve image from {file_name}')
+            else:
+                created += 1
+
+
+
+    print(f'''
+    success: {created}
+    failures: {failed}
+    skipped: {skipped}
+    ''')
             
 
 if __name__ == '__main__':
