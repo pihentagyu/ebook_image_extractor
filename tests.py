@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from lxml import etree
 import os
 import tempfile
@@ -63,11 +65,11 @@ class EpubTests(unittest.TestCase):
         self.epub.get_info('OEBPS/content.opf')
         mock_zip_file.assert_called()
 
-    def test_parse_file(self):
+    def test_parse_xml_file(self):
         container_file = 'META-INF/container.xml' #META-INF/container.xml tells us where the opf file is
         ebook_image_extractor.etree = mock.MagicMock()
         ebook_image_extractor.etree.parse = mock.MagicMock(return_value='test')
-        container_tree = self.epub.parse_file(container_file)
+        container_tree = self.epub.parse_xml_file(container_file)
         self.assertEqual(container_tree, 'test')
 
     def test_get_opf_from_container(self):
@@ -80,10 +82,6 @@ class EpubTests(unittest.TestCase):
         self.epub.get_info = mock.MagicMock(return_value='test')
         opf = self.epub.get_opf_from_default()
         self.assertEqual(opf, 'OEBPS/content.opf')
-
-        self.epub.get_info = mock.MagicMock(return_value='test')
-        opf = self.epub.get_opf_from_default()
-        self.assertEqual(opf, None)
 
     def test_get_opf_from_contents(self):
         self.epub.get_all_contents = mock.MagicMock(return_value=['a', 'b','c.opf', 'd'])
@@ -231,7 +229,7 @@ class EpubTests(unittest.TestCase):
 
 
     def test_get_image_from_src(self):
-        cover_html = '''<?xml version="1.0" encoding="UTF-8"?>
+        cover_html = b'''<?xml version="1.0" encoding="UTF-8"?>
             <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
             <html xmlns="http://www.w3.org/1999/xhtml" >
             <head>
@@ -265,7 +263,7 @@ class EpubTests(unittest.TestCase):
         self.epub.get_image_from_cover_page.assert_not_called()
 
         self.epub.get_image_from_meta = mock.MagicMock(return_value=None)
-        self.epub.get_image_from_cover_page = mock.MagicMock()
+        self.epub.get_image_from_cover_page = mock.MagicMock(return_value=None)
 
         self.epub.get_image_location()
 

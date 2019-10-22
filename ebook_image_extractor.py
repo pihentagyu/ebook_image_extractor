@@ -69,9 +69,9 @@ class Epub(Book):
 
     def get_opf_from_default(self):
         '''Guess the most common location'''
-        opf_info = self.get_info('OEPBS/content.opf')
+        opf_info = self.get_info('OEBPS/content.opf')
         if opf_info:
-            return 'OEPBS/content.opf'
+            return 'OEBPS/content.opf'
 
     def get_opf_from_contents(self):
         '''If nothing else works, unpack and find the first opf file'''
@@ -176,7 +176,7 @@ class Epub(Book):
         self.image = self.get_image_from_meta()
         if not self.image:
             self.image = self.get_image_from_cover_page()
-        if image:
+        if self.image:
             self.image = re.sub('^\/', '', self.image) #remove leading '/'
             return 0
         else:
