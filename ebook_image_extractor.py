@@ -235,88 +235,85 @@ def get_epub_list():
     print(usage)
     sys.exit(1)
 
-def main():
+def extract_image(file_name):
     container_file = 'META-INF/container.xml' #META-INF/container.xml tells us where the opf file is
+    fname, fext = os.path.splitext(file_name)
+    if os.path.isfile(fname + '.jpg'): # skip if jpeg already exists
+        print('Jpeg file already exists for %s' % file_name)
+        return 1, 0, 0 # skipped
+    print(f'Getting image for {file_name}...')
+    if file_name.lower().endswith('.epub'):
+        ebook = Epub(file_name)
+        #status = ebook.get_opf()
+        #if status == 1:
+        #    failed += 1
+        #    continue
+        status, msg = ebook.extract_file(container_file)
+        if status != 0:
+            print(msg)
+            return 0, 0, 1 # failed
+        container_tree = ebook.parse_xml_file(container_file)
+        opf = ebook.get_opf_from_container(container_tree)
+        if not opf:
+            opf = ebook.get_opf_from_default()
+        if not opf:
+            opf = ebook.get_opf_from_contents()
+        if opf:
+            ebook.opf = re.sub('\%20', ' ', opf) # clean up spaces
+            ebook.opf_path = os.path.dirname(ebook.opf)
+            ebook.extract_file(ebook.opf)
+        else:
+            print('Cannot find opf file')
+            return 0, 0, 1 # failed
+        opf_tree = ebook.parse_xml_file(ebook.opf)
+        cover_page = ebook.get_cover_page_from_opf(opf_tree)
+        if not cover_page:
+            print(f'cover page not found for {file_name}')
+            return 0, 0, 1 # failed
+        cover_page = re.sub('\%20', ' ', cover_page) # clean up spaces
+        print(cover_page)
+        cover_page = os.path.join(ebook.opf_path, cover_page)
+        cover_image = ebook.check_if_cover_is_image(cover_page)
+        if cover_image:
+            image_path = ebook.opf_path
+        else:
+            status, msg = ebook.extract_file(cover_page)
+            print(status, msg)
+            if status != 0:
+                return 0, 0, 1 # failed
+            cover_tree = ebook.get_cover_tree(cover_page)
+            cover_image = ebook.get_image_from_src(cover_tree)
+            if not cover_image:
+                cover_image = ebook.get_image_from_href(cover_tree)
+            image_path = os.path.dirname(cover_page)
+        if cover_image:
+            ebook.cover_image = ebook.correct_image_path(cover_image, image_path)
+
+
+            status = ebook.extract_image()
+            if status == 0:
+                return 0, 1, 0 # created
+            else:
+                return 0, 0, 1 # failed
+
+    else:
+        ebook = Pdf(book_file)
+        status, msg = ebook.extract_file()
+        if status != 0:
+            failed += 1
+            print(f'Unable to retrieve image from {file_name}')
+        else:
+            created += 1
+
+def main():
     start_time = time.time()
-    skipped = 0
-    created = 0
-    failed = 0
+    skipped = created = failed = 0
     image_path = None
     for file_name in get_epub_list():
-        fname, fext = os.path.splitext(file_name)
-        if os.path.isfile(fname + '.jpg'): # skip if jpeg already exists
-            print('Jpeg file already exists for %s' % file_name)
-            skipped += 1
-            continue
-        print(f'Getting image for {file_name}...')
-        if file_name.lower().endswith('.epub'):
-            ebook = Epub(file_name)
-            #status = ebook.get_opf()
-            #if status == 1:
-            #    failed += 1
-            #    continue
-            status, msg = ebook.extract_file(container_file)
-            if status != 0:
-                print(msg)
-                failed += 1
-                continue
-            container_tree = ebook.parse_xml_file(container_file)
-            opf = ebook.get_opf_from_container(container_tree)
-            if not opf:
-                opf = ebook.get_opf_from_default()
-            if not opf:
-                opf = ebook.get_opf_from_contents()
-            if opf:
-                ebook.opf = re.sub('\%20', ' ', opf) # clean up spaces
-                ebook.opf_path = os.path.dirname(ebook.opf)
-                ebook.extract_file(ebook.opf)
-            else:
-                print('Cannot find opf file')
-                failed += 1
-                continue
-            opf_tree = ebook.parse_xml_file(ebook.opf)
-            cover_page = ebook.get_cover_page_from_opf(opf_tree)
-            if not cover_page:
-                print(f'cover page not found for {file_name}')
-                failed += 1
-                continue
-            cover_page = re.sub('\%20', ' ', cover_page) # clean up spaces
-            print(cover_page)
-            cover_page = os.path.join(ebook.opf_path, cover_page)
-            cover_image = ebook.check_if_cover_is_image(cover_page)
-            if cover_image:
-                image_path = ebook.opf_path
-            else:
-                status, msg = ebook.extract_file(cover_page)
-                print(status, msg)
-                if status != 0:
-                    failed += 1
-                    continue
-                cover_tree = ebook.get_cover_tree(cover_page)
-                cover_image = ebook.get_image_from_src(cover_tree)
-                if not cover_image:
-                    cover_image = ebook.get_image_from_href(cover_tree)
-                image_path = os.path.dirname(cover_page)
-            if cover_image:
-                ebook.cover_image = ebook.correct_image_path(cover_image, image_path)
-
-
-                status = ebook.extract_image()
-                if status == 0:
-                    created += 1
-                else:
-                    failed += 1
-
-        else:
-            ebook = Pdf(book_file)
-            status, msg = ebook.extract_file()
-            if status != 0:
-                failed += 1
-                print(f'Unable to retrieve image from {file_name}')
-            else:
-                created += 1
-
-
+        s, c, f = extract_image(file_name)
+        skipped += s
+        created += c
+        failed += f
 
     print(f'''
     success: {created}
