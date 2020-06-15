@@ -288,22 +288,21 @@ def extract_image(file_name):
             image_path = os.path.dirname(cover_page)
         if cover_image:
             ebook.cover_image = ebook.correct_image_path(cover_image, image_path)
-
-
             status = ebook.extract_image()
             if status == 0:
                 return 0, 1, 0 # created
             else:
                 return 0, 0, 1 # failed
+        return 0, 0, 1 # failed
+
 
     else:
         ebook = Pdf(book_file)
         status, msg = ebook.extract_file()
         if status != 0:
-            failed += 1
-            print(f'Unable to retrieve image from {file_name}')
+            return 0, 0, 1 # failed
         else:
-            created += 1
+            return 0, 1, 0 # created
 
 def main():
     start_time = time.time()
